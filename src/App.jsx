@@ -93,7 +93,8 @@ export default function App() {
   const [editLogObj, setEditLogObj] = useState(null);
   const [globalMessage, setGlobalMessage] = useState(null); 
 
-  const userLogs = currentUser ? logs.filter(l => l.userId === currentUser.id).sort((a, b) => b.timestamp - a.timestamp) : [];
+  // ✅ แก้ไข: จับคู่ userId กับ userName เพื่อให้โชว์ประวัติได้แม่นยำแม้ข้อมูลซิงค์มาจากตาราง
+  const userLogs = currentUser ? logs.filter(l => l.userId === currentUser.id || l.userName === currentUser.name).sort((a, b) => b.timestamp - a.timestamp) : [];
   const latestLog = userLogs.length > 0 ? userLogs[0] : null;
   const isCurrentlyOut = latestLog && latestLog.type === 'start';
 
@@ -197,7 +198,7 @@ export default function App() {
 
       const result = JSON.parse(text);
       if (result && result.status === 'success') {
-        const logsData = result.logs || result.data || []; // รองรับโครงสร้างเก่าและใหม่
+        const logsData = result.logs || result.data || []; 
         if (logsData.length > 0) {
             const formattedLogs = logsData.map(item => {
                 const rawDate = item['วัน-เวลา'] || item.dateString || item['วันที่'] || '';
@@ -497,25 +498,45 @@ export default function App() {
       const isTodayStr = formatDateToThai(new Date()).split(' ')[0];
       const isToday = targetDateStr === isTodayStr;
       
-      const activeEmployees = appUsers.filter(u => u.role === 'employee').map(emp => { const empLogs = logs.filter(l => l.userId === emp.id); return { ...emp, isOut: empLogs[0] && empLogs[0].type === 'start' }; });
+      // ✅ แก้ไข: อัปเดตตัวนับคนที่กำลังเดินทาง ให้เช็คจาก userName เผื่อกรณี ID ไม่ตรงกันจากการดึงข้อมูล
+      const activeEmployees = appUsers.filter(u => u.role === 'employee').map(emp => { 
+        const empLogs = logs.filter(l => l.userId === emp.id || l.userName === emp.name).sort((a,b) => b.timestamp - a.timestamp); 
+        return { ...emp, isOut: empLogs[0] && empLogs[0].type === 'start' }; 
+      });
       const currentlyOutCount = activeEmployees.filter(e => e.isOut).length;
 
-      const targetDayTrips = []; const tempStarts = {};
+      // ✅ แก้ไข: ลอจิกใหม่! ถึงพนักงานจะกดแค่ "เข้างาน" หรือ "เลิกงาน" อย่างใดอย่างหนึ่งในวันนั้น ก็จะนำมาแสดงในสรุปด้วย
+      const userStats = {};
+      let totalDistanceTargetDay = 0;
+      
       [...logs].sort((a, b) => a.timestamp - b.timestamp).forEach(log => {
         if (log.dateString.split(' ')[0] !== targetDateStr) return; 
-        if (log.type === 'start') { tempStarts[log.userId] = log; } 
-        else if (log.type === 'end' && tempStarts[log.userId]) { targetDayTrips.push({ userId: log.userId, userName: log.userName, distance: (log.mileage || 0) - (tempStarts[log.userId].mileage || 0), startLog: tempStarts[log.userId], endLog: log }); tempStarts[log.userId] = null; }
-      });
-
-      const totalDistanceTargetDay = targetDayTrips.reduce((sum, t) => sum + t.distance, 0);
-      const userStats = {};
-      targetDayTrips.forEach(t => {
-        const vTypeRaw = vehicles.find(v => v.plate === t.startLog.vehiclePlate)?.type || '';
-        let vType = 'รถยนต์'; if (vTypeRaw.includes('จักรยาน') || vTypeRaw.includes('มอเตอร์ไซค์')) vType = 'มอเตอร์ไซค์'; else if (vTypeRaw.includes('บรรทุก')) vType = 'รถบรรทุก';
-        if (!userStats[t.userId]) { userStats[t.userId] = { userName: t.userName, distance: 0, startMileage: t.startLog.mileage, endMileage: t.endLog.mileage, breakdown: {} }; }
-        userStats[t.userId].distance += t.distance; userStats[t.userId].startMileage = Math.min(userStats[t.userId].startMileage, t.startLog.mileage); userStats[t.userId].endMileage = Math.max(userStats[t.userId].endMileage, t.endLog.mileage); userStats[t.userId].breakdown[vType] = (userStats[t.userId].breakdown[vType] || 0) + t.distance;
+        
+        const uid = log.userName; // Group ด้วยชื่อ จะได้ตัดปัญหาเรื่อง ID
+        if (!userStats[uid]) { 
+            userStats[uid] = { userName: log.userName, distance: 0, startMileage: null, endMileage: null, breakdown: {}, tempStart: null }; 
+        }
+        
+        if (log.type === 'start') {
+            userStats[uid].startMileage = userStats[uid].startMileage !== null ? Math.min(userStats[uid].startMileage, log.mileage) : log.mileage;
+            userStats[uid].tempStart = log;
+        } else if (log.type === 'end') {
+            userStats[uid].endMileage = userStats[uid].endMileage !== null ? Math.max(userStats[uid].endMileage, log.mileage) : log.mileage;
+            if (userStats[uid].tempStart) {
+                const dist = log.mileage - userStats[uid].tempStart.mileage;
+                if (dist > 0) {
+                    userStats[uid].distance += dist;
+                    totalDistanceTargetDay += dist;
+                    const vTypeRaw = vehicles.find(v => v.plate === log.vehiclePlate)?.type || '';
+                    let vType = 'รถยนต์'; if (vTypeRaw.includes('จักรยาน') || vTypeRaw.includes('มอเตอร์ไซค์')) vType = 'มอเตอร์ไซค์'; else if (vTypeRaw.includes('บรรทุก')) vType = 'รถบรรทุก';
+                    userStats[uid].breakdown[vType] = (userStats[uid].breakdown[vType] || 0) + dist;
+                }
+                userStats[uid].tempStart = null;
+            }
+        }
       });
       const userStatsArray = Object.values(userStats).sort((a, b) => b.distance - a.distance);
+      
       const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
       let conicGradientStr = totalDistanceTargetDay > 0 ? userStatsArray.map((stat, idx) => { const percent = (stat.distance / totalDistanceTargetDay) * 100; const start = arguments[2] || 0; arguments[2] = start + percent; return `${colors[idx % colors.length]} ${start}% ${arguments[2]}%`; }).join(', ') : '#e5e7eb 0% 100%';
 
@@ -567,8 +588,14 @@ export default function App() {
                         <div className="flex flex-col gap-2">{Object.entries(stat.breakdown).map(([type, dist]) => (<div key={type} className="flex justify-between items-center text-sm text-gray-700 bg-gray-50 px-4 py-3 rounded-2xl border border-gray-100"><span className="flex items-center gap-2 font-bold">{type === 'มอเตอร์ไซค์' ? '🏍️' : (type === 'รถบรรทุก' ? '🚚' : '🚗')} {type}</span><span className="font-extrabold text-blue-700 text-xl">{dist} <span className="text-sm text-gray-500 font-medium">กม.</span></span></div>))}</div>
                     )}
                     <div className="grid grid-cols-2 gap-3 mt-2">
-                      <div className="flex flex-col items-center justify-center p-4 bg-blue-50 rounded-2xl border border-blue-100"><span className="text-sm text-blue-600 font-bold mb-1">ไมล์แรกเข้างาน</span><span className="text-3xl md:text-4xl font-extrabold text-blue-800 font-mono tracking-tight">{stat.startMileage.toLocaleString()}</span></div>
-                      <div className="flex flex-col items-center justify-center p-4 bg-orange-50 rounded-2xl border border-orange-100"><span className="text-sm text-orange-600 font-bold mb-1">ไมล์เลิกงานล่าสุด</span><span className="text-3xl md:text-4xl font-extrabold text-orange-800 font-mono tracking-tight">{stat.endMileage.toLocaleString()}</span></div>
+                      <div className="flex flex-col items-center justify-center p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                         <span className="text-sm text-blue-600 font-bold mb-1">ไมล์แรกเข้างาน</span>
+                         <span className="text-3xl md:text-4xl font-extrabold text-blue-800 font-mono tracking-tight">{stat.startMileage !== null ? stat.startMileage.toLocaleString() : '-'}</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
+                         <span className="text-sm text-orange-600 font-bold mb-1">ไมล์เลิกงานล่าสุด</span>
+                         <span className="text-3xl md:text-4xl font-extrabold text-orange-800 font-mono tracking-tight">{stat.endMileage !== null ? stat.endMileage.toLocaleString() : '-'}</span>
+                      </div>
                     </div>
                   </div>
                 ))
