@@ -51,7 +51,6 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState('login'); 
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   
-  // ✅ เพิ่มระบบป้องกัน Error เวลา LocalStorage พัง
   const [appUsers, setAppUsers] = useState(() => { 
       const saved = localStorage.getItem('smpc_users'); 
       try { return saved ? JSON.parse(saved) : INITIAL_USERS_DATA; } catch(e) { localStorage.removeItem('smpc_users'); return INITIAL_USERS_DATA; }
@@ -74,7 +73,7 @@ export default function App() {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false); // ✅ สถานะการล็อกอิน
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [settingsTab, setSettingsTab] = useState('users'); 
 
   const [formType, setFormType] = useState('start');
@@ -104,7 +103,7 @@ export default function App() {
   const latestLog = userLogs.length > 0 ? userLogs[0] : null;
   const isCurrentlyOut = latestLog && latestLog.type === 'start';
 
-  // ✅ ระบบดึงข้อมูลรถและพนักงานอัตโนมัติ (Silent Sync) เมื่อเปิดแอป
+  // Silent Sync ตอนเปิดแอป
   useEffect(() => {
     const silentSync = async () => {
        if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
@@ -150,7 +149,7 @@ export default function App() {
       }
     } catch (e) {}
     setIsBootstrapping(false);
-  }, [appUsers]); // อัปเดตการดึง session ให้ตรวจเช็คใหม่เมื่อ appUsers ถูกดึงมา
+  }, []); 
 
   const formatDateToThai = (dateObj) => {
     const d = dateObj.getDate(); const m = dateObj.getMonth() + 1; let y = dateObj.getFullYear();
@@ -187,25 +186,37 @@ export default function App() {
   const generateDocNo = () => `DOC-${new Date().getFullYear().toString().slice(2)}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
   const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 
-  // ✅ ระบบล็อกอินอัจฉริยะ (Smart Login)
+  // ✅ อัปเกรดระบบ Login แบบเกราะเหล็ก
   const handleLogin = async () => {
+    if (isLoggingIn) return; // ป้องกันกดปุ่มรัวๆ
     setLoginError('');
-    if (!loginUsername || !loginPassword) { setLoginError('กรุณากรอก Username และ Password'); return; }
+    
+    // ตัดช่องว่างซ้ายขวาทิ้ง (กันมือถือเติมเคาะวรรคให้เอง)
+    const cleanUser = loginUsername.trim();
+    const cleanPass = loginPassword.trim();
+
+    if (!cleanUser || !cleanPass) { setLoginError('กรุณากรอก Username และ Password'); return; }
 
     setIsLoggingIn(true);
-    let matchedUser = appUsers.find(u => u.username === loginUsername && u.password === loginPassword);
+    let matchedUser = appUsers.find(u => u.username === cleanUser && u.password === cleanPass);
 
     if (matchedUser) {
       setCurrentUser(matchedUser); setCurrentScreen(matchedUser.role === 'admin' ? 'admin' : 'dashboard');
       safeSetLocalStorage('smpc_session', JSON.stringify({ username: matchedUser.username, loggedAt: new Date().getTime() }));
       setIsLoggingIn(false);
     } else {
-      // ถ้าระบบในมือถือไม่เจอชื่อ (เช่น พนักงานใหม่) ให้วิ่งไปเช็ครายชื่อจากส่วนกลางทันที
       if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
         try {
-          const response = await fetch(`${GAS_WEB_APP_URL}?t=${new Date().getTime()}`);
+          // ตั้งเวลา Timeout 10 วินาที ป้องกันแอปค้างหมุนวนๆ ตลอดกาล
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); 
+          
+          const response = await fetch(`${GAS_WEB_APP_URL}?t=${new Date().getTime()}`, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          
           const text = await response.text();
           const result = JSON.parse(text);
+          
           if (result && result.status === 'success' && result.users) {
             const fetchedUsers = result.users.map(u => ({ id: u.id || generateId(), name: u['ชื่อ-สกุล'] || u.name, username: u.Username || u.username, password: u.Password || u.password, role: u['สิทธิ์'] || u.role }));
             setAppUsers(fetchedUsers);
@@ -214,8 +225,8 @@ export default function App() {
               setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) })));
             }
 
-            // ลองเช็คอีกรอบด้วยข้อมูลใหม่ที่เพิ่งโหลดมา
-            matchedUser = fetchedUsers.find(u => u.username === loginUsername && u.password === loginPassword);
+            // ลองเช็คข้อมูลอีกรอบหลังจากซิงค์เสร็จ
+            matchedUser = fetchedUsers.find(u => u.username === cleanUser && u.password === cleanPass);
             if (matchedUser) {
               setCurrentUser(matchedUser); setCurrentScreen(matchedUser.role === 'admin' ? 'admin' : 'dashboard');
               safeSetLocalStorage('smpc_session', JSON.stringify({ username: matchedUser.username, loggedAt: new Date().getTime() }));
@@ -226,7 +237,11 @@ export default function App() {
             setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
           }
         } catch (e) {
-          setLoginError('ไม่พบข้อมูล และไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+          if (e.name === 'AbortError') {
+             setLoginError('เซิร์ฟเวอร์ตอบสนองช้าเกินไป (ลองใหม่อีกครั้ง)');
+          } else {
+             setLoginError('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาเช็คอินเทอร์เน็ต');
+          }
         }
       } else {
         setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
@@ -430,8 +445,9 @@ export default function App() {
                 <p className="text-lg font-extrabold text-center text-white border-b-2 border-white/30 pb-2 drop-shadow-sm flex items-center justify-center gap-2"><KeyRound size={20} />เข้าสู่ระบบ</p>
                 <p className="text-sm text-blue-100 font-medium leading-relaxed text-center">* ชื่อผู้ใช้งานเป็นภาษาอังกฤษเท่านั้น</p>
                 <div className="space-y-4 mt-4">
-                  <input type="text" placeholder="ชื่อผู้ใช้งาน (Username)" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
-                  <input type="password" placeholder="รหัสผ่าน (Password)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
+                  {/* ปิด Auto-Capitalize และ Auto-Correct ป้องกันมือถือแอบเปลี่ยนคำ */}
+                  <input type="text" placeholder="ชื่อผู้ใช้งาน (Username)" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} autoCapitalize="none" autoCorrect="off" className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
+                  <input type="password" placeholder="รหัสผ่าน (Password)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} autoCapitalize="none" autoCorrect="off" className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
                 </div>
                 {loginError && <div className="flex items-center justify-center gap-1 mt-2 text-red-200 bg-red-900/40 p-3 rounded-lg"><AlertCircle size={16} /><p className="text-sm font-bold">{loginError}</p></div>}
                 <button onClick={handleLogin} disabled={isLoggingIn} className={`w-full mt-6 py-4 rounded-xl font-extrabold text-xl text-white border-b-4 shadow-lg transition-all flex items-center justify-center gap-2 ${isLoggingIn ? 'bg-blue-400 border-blue-500 cursor-not-allowed translate-y-1 border-b-0' : 'bg-blue-900 border-black/30 hover:bg-blue-800 active:translate-y-1 active:border-b-0'}`}>
