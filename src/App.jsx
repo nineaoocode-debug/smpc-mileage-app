@@ -16,7 +16,7 @@ const INITIAL_USERS_DATA = [
 ];
 
 const INITIAL_VEHICLES_DATA = [
-  { id: 'v1', plate: '7ขธ-4987 กทม.', type: 'รถจักรยานยนต์ (Honda Wave)' }
+  { id: 'v1', plate: '7ขธ-4987 กทม.', type: 'รถจักรยานยนต์ (Honda Wave)', mileage: 0, maxMileage: 100000 }
 ];
 
 const AppHeader = ({ title, subtitle, showBack, currentUser, onBack, onLogout }) => {
@@ -83,6 +83,7 @@ export default function App() {
   const [photoBase64, setPhotoBase64] = useState(''); 
   const [isUploading, setIsUploading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRollover, setIsRollover] = useState(false); // ✅ ฟีเจอร์ไมล์ตีกลับ
   
   const [dashboardDate, setDashboardDate] = useState(new Date());
 
@@ -116,7 +117,8 @@ export default function App() {
                        setAppUsers(result.users.map(u => ({ id: u.id || generateId(), name: u['ชื่อ-สกุล'] || u.name, username: u.Username || u.username, password: u.Password || u.password, role: u['สิทธิ์'] || u.role })));
                    }
                    if (result.vehicles && result.vehicles.length > 0) {
-                       setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) })));
+                       // ✅ ดึงลิมิตหน้าปัดมาด้วย
+                       setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0), maxMileage: Number(v['ลิมิตหน้าปัด'] || v.maxMileage || 100000) })));
                    }
                }
            } catch (e) { console.log('Silent sync failed', e); }
@@ -139,7 +141,6 @@ export default function App() {
   useEffect(() => { safeSetLocalStorage('smpc_vehicles', JSON.stringify(vehicles)); }, [vehicles]);
   useEffect(() => { safeSetLocalStorage('smpc_logs', JSON.stringify(logs)); }, [logs]);
 
-  // ✅ แก้ไข: ลบ appUsers ออกจาก dependency ป้องกันแอปรวนเวลากำลังใช้งาน
   useEffect(() => {
     try {
       const savedSession = localStorage.getItem('smpc_session');
@@ -187,12 +188,10 @@ export default function App() {
   const generateDocNo = () => `DOC-${new Date().getFullYear().toString().slice(2)}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
   const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 
-  // ✅ อัปเกรดระบบ Login แบบเกราะเหล็ก
   const handleLogin = async () => {
-    if (isLoggingIn) return; // ป้องกันกดปุ่มรัวๆ
+    if (isLoggingIn) return; 
     setLoginError('');
     
-    // ✅ ท่าไม้ตาย 1: ตัดช่องว่างซ้ายขวาทิ้ง (กันมือถือเติมเคาะวรรคให้เอง)
     const cleanUser = loginUsername.trim();
     const cleanPass = loginPassword.trim();
 
@@ -208,7 +207,6 @@ export default function App() {
     } else {
       if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
         try {
-          // ✅ ท่าไม้ตาย 2: ตั้งเวลา Timeout 10 วินาที ป้องกันแอปค้างหมุนวนๆ ตลอดกาล
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 10000); 
           
@@ -223,10 +221,9 @@ export default function App() {
             setAppUsers(fetchedUsers);
             
             if (result.vehicles) {
-              setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) })));
+              setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0), maxMileage: Number(v['ลิมิตหน้าปัด'] || v.maxMileage || 100000) })));
             }
 
-            // ลองเช็คข้อมูลอีกรอบหลังจากซิงค์เสร็จ
             matchedUser = fetchedUsers.find(u => u.username === cleanUser && u.password === cleanPass);
             if (matchedUser) {
               setCurrentUser(matchedUser); setCurrentScreen(matchedUser.role === 'admin' ? 'admin' : 'dashboard');
@@ -252,7 +249,7 @@ export default function App() {
   };
 
   const handleLogout = () => { localStorage.removeItem('smpc_session'); setCurrentUser(null); setCurrentScreen('login'); setLoginUsername(''); setLoginPassword(''); resetForm(); };
-  const resetForm = () => { setSelectedVehicle(''); setMileage(''); setPhotoUploaded(false); setPhotoBase64(''); setGlobalMessage(null); };
+  const resetForm = () => { setSelectedVehicle(''); setMileage(''); setPhotoUploaded(false); setPhotoBase64(''); setGlobalMessage(null); setIsRollover(false); };
 
   const handleOpenForm = (type) => {
     setFormType(type); resetForm();
@@ -304,7 +301,7 @@ export default function App() {
         }
         
         if (result.vehicles && result.vehicles.length > 0) {
-            const fetchedVehicles = result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) }));
+            const fetchedVehicles = result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0), maxMileage: Number(v['ลิมิตหน้าปัด'] || v.maxMileage || 100000) }));
             setVehicles(fetchedVehicles);
         }
         if (result.users && result.users.length > 0) {
@@ -343,14 +340,22 @@ export default function App() {
 
   const handleSubmitLog = async () => {
     if (!selectedVehicle) { setGlobalMessage({text: 'กรุณาเลือกยานพาหนะ', type: 'info'}); return; }
-    if (!mileage || isNaN(mileage) || Number(mileage) <= 0) { setGlobalMessage({text: 'กรุณาระบุเลขไมล์ให้ถูกต้อง', type: 'info'}); return; }
-    if (formType === 'end' && latestLog && Number(mileage) <= (latestLog.mileage || 0)) { setGlobalMessage({text: `เลขไมล์ตอนเลิกงานต้องเพิ่มขึ้น\n(ไมล์ตอนเข้างานคือ: ${latestLog.mileage || 0})`, type: 'info'}); return; }
+    if (!mileage || isNaN(mileage) || Number(mileage) < 0) { setGlobalMessage({text: 'กรุณาระบุเลขไมล์ให้ถูกต้อง', type: 'info'}); return; }
+    
+    // ✅ แก้ไข: อนุญาตให้เลขไมล์น้อยกว่าตอนเช้าได้ ถ้าผู้ใช้ติ๊ก "ไมล์ตีกลับเป็น 0"
+    if (formType === 'end' && latestLog && !isRollover && Number(mileage) <= (latestLog.mileage || 0)) { 
+      setGlobalMessage({text: `เลขไมล์ตอนเลิกงานต้องเพิ่มขึ้น\n(ถ้าหน้าปัดตีกลับเป็น 0 ให้ติ๊กเลือกตัวเลือกด้านล่าง)`, type: 'info'}); 
+      return; 
+    }
+    
     if (!photoUploaded || !photoBase64) { setGlobalMessage({text: 'กรุณาแนบรูปหน้าปัดเป็นหลักฐาน', type: 'info'}); return; }
 
     setIsUploading(true);
     try {
       const docNo = generateDocNo(); const now = new Date();
-      const localPayload = { id: generateId(), docNo, userId: currentUser.id, userName: currentUser.name, type: formType, vehicleId: selectedVehicle, vehiclePlate: vehicles.find(v => v.id === selectedVehicle)?.plate || 'N/A', mileage: Number(mileage), workPeriod: checkWorkPeriod(), timestamp: now.getTime(), dateString: formatDateToThai(now), photoUrl: '', photoBase64: null };
+      // ส่ง isRollover ไปด้วยเพื่อบันทึกหมายเหตุ
+      const localPayload = { id: generateId(), docNo, userId: currentUser.id, userName: currentUser.name, type: formType, vehicleId: selectedVehicle, vehiclePlate: vehicles.find(v => v.id === selectedVehicle)?.plate || 'N/A', mileage: Number(mileage), workPeriod: checkWorkPeriod(), timestamp: now.getTime(), dateString: formatDateToThai(now), photoUrl: '', photoBase64: null, isRollover: isRollover };
+      
       setLogs([localPayload, ...logs].sort((a, b) => b.timestamp - a.timestamp));
       setVehicles(vehicles.map(v => v.id === selectedVehicle ? { ...v, mileage: Number(mileage) } : v));
 
@@ -384,9 +389,9 @@ export default function App() {
   };
 
   const handleAddVehicle = (e) => {
-    e.preventDefault(); const form = e.target; const plate = form.plate.value; const type = form.type.value;
+    e.preventDefault(); const form = e.target; const plate = form.plate.value; const type = form.type.value; const maxMileage = Number(form.maxMileage.value) || 100000;
     if(plate && type) {
-      const newVehicles = [...vehicles, { id: generateId(), plate, type, mileage: 0 }];
+      const newVehicles = [...vehicles, { id: generateId(), plate, type, mileage: 0, maxMileage }];
       setVehicles(newVehicles); syncSettingsToCloud(appUsers, newVehicles);
       form.reset(); setGlobalMessage({ text: 'เพิ่มยานพาหนะสำเร็จ', type: 'info' });
     }
@@ -394,7 +399,7 @@ export default function App() {
 
   const handleUpdateVehicle = (e) => {
     e.preventDefault(); const form = e.target;
-    const newVehicles = vehicles.map(v => v.id === editVehicleObj.id ? { ...v, plate: form.edit_plate.value, type: form.edit_type.value, mileage: Number(form.edit_vehicle_mileage.value) } : v);
+    const newVehicles = vehicles.map(v => v.id === editVehicleObj.id ? { ...v, plate: form.edit_plate.value, type: form.edit_type.value, mileage: Number(form.edit_vehicle_mileage.value), maxMileage: Number(form.edit_maxMileage.value) } : v);
     setVehicles(newVehicles); syncSettingsToCloud(appUsers, newVehicles);
     setEditVehicleObj(null); setGlobalMessage({ text: 'อัปเดตข้อมูลยานพาหนะสำเร็จ', type: 'info' });
   };
@@ -404,7 +409,7 @@ export default function App() {
   };
 
   const handleUpdateLogMileage = async (e) => {
-    e.preventDefault(); const newMileage = Number(e.target.edit_log_mileage.value); if (!newMileage || isNaN(newMileage)) return;
+    e.preventDefault(); const newMileage = Number(e.target.edit_log_mileage.value); if (isNaN(newMileage)) return;
     try {
       setLogs(logs.map(l => l.id === editLogObj.id ? { ...l, mileage: newMileage } : l));
       if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
@@ -446,7 +451,6 @@ export default function App() {
                 <p className="text-lg font-extrabold text-center text-white border-b-2 border-white/30 pb-2 drop-shadow-sm flex items-center justify-center gap-2"><KeyRound size={20} />เข้าสู่ระบบ</p>
                 <p className="text-sm text-blue-100 font-medium leading-relaxed text-center">* ชื่อผู้ใช้งานเป็นภาษาอังกฤษเท่านั้น</p>
                 <div className="space-y-4 mt-4">
-                  {/* ✅ ปิด Auto-Capitalize และ Auto-Correct ป้องกันมือถือแอบเปลี่ยนคำ */}
                   <input type="text" placeholder="ชื่อผู้ใช้งาน (Username)" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} autoCapitalize="none" autoCorrect="off" className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
                   <input type="password" placeholder="รหัสผ่าน (Password)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} autoCapitalize="none" autoCorrect="off" className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
                 </div>
@@ -470,12 +474,32 @@ export default function App() {
 
       const todayStr = formatDateToThai(new Date()).split(' ')[0];
       const todayTrips = trips.filter(t => t.dateString === todayStr);
-      const todayDistance = todayTrips.reduce((sum, t) => sum + t.distance, 0);
-      const totalDistanceAllTime = trips.reduce((sum, t) => sum + t.distance, 0);
-      const otLogs = userLogs.filter(l => l.workPeriod === 'นอกเวลาปกติ');
-      const normalLogs = userLogs.filter(l => l.workPeriod === 'เวลาปกติ');
-      const totalWorkLogs = userLogs.length;
-      const normalPercent = totalWorkLogs > 0 ? (normalLogs.length / totalWorkLogs) * 100 : 0;
+      // คำนวณระยะทางวันนี้ใหม่ แบบเผื่อมีไมล์ตีกลับ (ถึงแม้ user ธรรมดาจะไม่ได้โชว์แบบ Admin แต่ถ้าอยากให้เป๊ะ ก็ควรดึง logic มา)
+      let todayDistance = 0;
+      todayTrips.forEach(t => {
+         let dist = 0;
+         if (t.end.mileage < t.start.mileage) {
+             const v = vehicles.find(v => v.plate === t.start.vehiclePlate);
+             const maxM = v ? (v.maxMileage || 100000) : 100000;
+             dist = (maxM - t.start.mileage) + t.end.mileage;
+         } else {
+             dist = t.end.mileage - t.start.mileage;
+         }
+         todayDistance += dist;
+      });
+      
+      let totalDistanceAllTime = 0;
+      trips.forEach(t => {
+         let dist = 0;
+         if (t.end.mileage < t.start.mileage) {
+             const v = vehicles.find(v => v.plate === t.start.vehiclePlate);
+             const maxM = v ? (v.maxMileage || 100000) : 100000;
+             dist = (maxM - t.start.mileage) + t.end.mileage;
+         } else {
+             dist = t.end.mileage - t.start.mileage;
+         }
+         totalDistanceAllTime += dist;
+      });
 
       return (
         <div className="h-screen overflow-y-auto no-scrollbar bg-gray-50 max-w-md mx-auto shadow-xl relative pb-20">
@@ -548,6 +572,13 @@ export default function App() {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">เลขหน้าปัดไมล์ (กม.)</label>
                 <input type="number" value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="เช่น 12500" className="w-full border border-gray-300 rounded-xl p-3 bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none text-lg" />
+                {/* ✅ ฟีเจอร์ไมล์ตีกลับเป็น 0 */}
+                {!isStart && (
+                  <div className="flex items-center gap-2 mt-3 p-3 bg-red-50 border border-red-100 rounded-xl transition-all">
+                    <input type="checkbox" id="rollover" checked={isRollover} onChange={e => setIsRollover(e.target.checked)} className="w-5 h-5 accent-red-600 rounded cursor-pointer" />
+                    <label htmlFor="rollover" className="text-sm font-bold text-red-700 cursor-pointer select-none">ไมล์หน้าปัดตีกลับเป็น 0 (Odometer Rollover)</label>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">รูปถ่ายหน้าปัดรถยนต์/มอเตอร์ไซค์</label>
@@ -602,7 +633,20 @@ export default function App() {
         } else if (log.type === 'end') {
             userStats[uid].endMileage = userStats[uid].endMileage !== null ? Math.max(userStats[uid].endMileage, log.mileage) : log.mileage;
             if (userStats[uid].tempStart) {
-                const dist = log.mileage - userStats[uid].tempStart.mileage;
+                // ✅ แก้ไขสูตรคำนวณ: ถ้ารถไมล์ตีกลับเป็น 0 (เลขตอนเย็น น้อยกว่า ตอนเช้า)
+                let startMil = userStats[uid].tempStart.mileage;
+                let endMil = log.mileage;
+                let dist = 0;
+
+                if (endMil < startMil) {
+                    // ดึงลิมิตหน้าปัดของรถคันนั้นมาลบ ถ้าหาไม่เจอให้เหมาเป็น 1 แสน
+                    const v = vehicles.find(v => v.plate === log.vehiclePlate);
+                    const maxM = v ? (v.maxMileage || 100000) : 100000;
+                    dist = (maxM - startMil) + endMil;
+                } else {
+                    dist = endMil - startMil;
+                }
+
                 if (dist > 0) {
                     userStats[uid].distance += dist;
                     totalDistanceTargetDay += dist;
@@ -856,6 +900,11 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input name="plate" required placeholder="ป้ายทะเบียนรถ (เช่น กท-1234 กทม)" className="border-2 border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-400 outline-none" />
                     <select name="type" className="border-2 border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-400 outline-none font-bold text-gray-700"><option value="รถยนต์">รถยนต์</option><option value="รถจักรยานยนต์">รถจักรยานยนต์</option><option value="รถบรรทุก">รถบรรทุก</option></select>
+                    {/* ✅ เพิ่มช่องกรอกลิมิตหน้าปัด */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">ลิมิตหน้าปัดรถ (สำหรับคำนวณไมล์ตีกลับ)</label>
+                      <input name="maxMileage" type="number" defaultValue="100000" required placeholder="เช่น 100000 หรือ 1000000" className="w-full border-2 border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-400 outline-none" />
+                    </div>
                   </div>
                   <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors flex justify-center items-center gap-2"><Plus size={20}/> เพิ่มยานพาหนะ</button>
                 </form>
@@ -866,7 +915,7 @@ export default function App() {
                     const latestMileageNum = vLogs.length > 0 ? vLogs[0].mileage : v.mileage;
                     return (
                       <div key={v.id} className="p-4 border-b border-gray-100 flex justify-between items-center hover:bg-gray-50 transition-colors">
-                        <div><p className="font-bold text-gray-800 text-lg">{v.plate}</p><p className="text-sm text-gray-500 mt-1 flex items-center gap-2 flex-wrap"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{v.type}</span><span className="bg-gray-100 text-gray-500 px-2 py-1 rounded text-xs font-medium border border-gray-200">เลขไมล์ล่าสุด: {latestMileageNum ? latestMileageNum.toLocaleString() : '0'}</span></p></div>
+                        <div><p className="font-bold text-gray-800 text-lg">{v.plate}</p><p className="text-sm text-gray-500 mt-1 flex items-center gap-2 flex-wrap"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{v.type}</span><span className="bg-gray-100 text-gray-500 px-2 py-1 rounded text-xs font-medium border border-gray-200">ไมล์ล่าสุด: {latestMileageNum ? latestMileageNum.toLocaleString() : '0'}</span><span className="bg-orange-50 text-orange-600 px-2 py-1 rounded text-xs font-medium border border-orange-200">ลิมิต: {(v.maxMileage || 100000).toLocaleString()}</span></p></div>
                         <div className="flex items-center gap-1"><button onClick={() => setEditVehicleObj(v)} className="text-blue-500 p-2 hover:bg-blue-50 rounded-full transition-colors"><Edit size={20} /></button><button onClick={() => handleDeleteVehicle(v.id)} className="text-red-500 p-2 hover:bg-red-50 rounded-full transition-colors"><Trash2 size={20} /></button></div>
                       </div>
                     );
@@ -901,6 +950,7 @@ export default function App() {
                   <div><label className="block text-xs font-semibold text-gray-500 mb-1">ป้ายทะเบียน</label><input name="edit_plate" defaultValue={editVehicleObj.plate} required className="w-full border-2 border-gray-200 p-2 rounded-xl bg-gray-50 focus:border-blue-400 outline-none" /></div>
                   <div><label className="block text-xs font-semibold text-gray-500 mb-1">ประเภทรถ</label><select name="edit_type" defaultValue={editVehicleObj.type} className="w-full border-2 border-gray-200 p-2 rounded-xl bg-gray-50 focus:border-blue-400 outline-none font-bold text-gray-700"><option value="รถยนต์">รถยนต์</option><option value="รถจักรยานยนต์">รถจักรยานยนต์</option><option value="รถบรรทุก">รถบรรทุก</option></select></div>
                   <div><label className="block text-xs font-semibold text-gray-500 mb-1">เลขไมล์ล่าสุด (กม.)</label><input name="edit_vehicle_mileage" type="number" defaultValue={editVehicleObj.mileage || (logs.filter(l => l.vehiclePlate === editVehicleObj.plate)[0]?.mileage) || ''} required className="w-full border-2 border-gray-200 p-2 rounded-xl bg-gray-50 focus:border-blue-400 outline-none font-bold text-blue-700" /></div>
+                  <div><label className="block text-xs font-semibold text-gray-500 mb-1">ลิมิตหน้าปัด</label><input name="edit_maxMileage" type="number" defaultValue={editVehicleObj.maxMileage || 100000} required className="w-full border-2 border-gray-200 p-2 rounded-xl bg-gray-50 focus:border-blue-400 outline-none" /></div>
                 </div>
                 <div className="flex gap-3 mt-6"><button type="button" onClick={() => setEditVehicleObj(null)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200">ยกเลิก</button><button type="submit" className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-md">บันทึก</button></div>
               </form>
