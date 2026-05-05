@@ -139,6 +139,7 @@ export default function App() {
   useEffect(() => { safeSetLocalStorage('smpc_vehicles', JSON.stringify(vehicles)); }, [vehicles]);
   useEffect(() => { safeSetLocalStorage('smpc_logs', JSON.stringify(logs)); }, [logs]);
 
+  // ✅ แก้ไข: ลบ appUsers ออกจาก dependency ป้องกันแอปรวนเวลากำลังใช้งาน
   useEffect(() => {
     try {
       const savedSession = localStorage.getItem('smpc_session');
@@ -191,7 +192,7 @@ export default function App() {
     if (isLoggingIn) return; // ป้องกันกดปุ่มรัวๆ
     setLoginError('');
     
-    // ตัดช่องว่างซ้ายขวาทิ้ง (กันมือถือเติมเคาะวรรคให้เอง)
+    // ✅ ท่าไม้ตาย 1: ตัดช่องว่างซ้ายขวาทิ้ง (กันมือถือเติมเคาะวรรคให้เอง)
     const cleanUser = loginUsername.trim();
     const cleanPass = loginPassword.trim();
 
@@ -207,7 +208,7 @@ export default function App() {
     } else {
       if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
         try {
-          // ตั้งเวลา Timeout 10 วินาที ป้องกันแอปค้างหมุนวนๆ ตลอดกาล
+          // ✅ ท่าไม้ตาย 2: ตั้งเวลา Timeout 10 วินาที ป้องกันแอปค้างหมุนวนๆ ตลอดกาล
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 10000); 
           
@@ -445,7 +446,7 @@ export default function App() {
                 <p className="text-lg font-extrabold text-center text-white border-b-2 border-white/30 pb-2 drop-shadow-sm flex items-center justify-center gap-2"><KeyRound size={20} />เข้าสู่ระบบ</p>
                 <p className="text-sm text-blue-100 font-medium leading-relaxed text-center">* ชื่อผู้ใช้งานเป็นภาษาอังกฤษเท่านั้น</p>
                 <div className="space-y-4 mt-4">
-                  {/* ปิด Auto-Capitalize และ Auto-Correct ป้องกันมือถือแอบเปลี่ยนคำ */}
+                  {/* ✅ ปิด Auto-Capitalize และ Auto-Correct ป้องกันมือถือแอบเปลี่ยนคำ */}
                   <input type="text" placeholder="ชื่อผู้ใช้งาน (Username)" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} autoCapitalize="none" autoCorrect="off" className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
                   <input type="password" placeholder="รหัสผ่าน (Password)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} autoCapitalize="none" autoCorrect="off" className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
                 </div>
