@@ -51,15 +51,22 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState('login'); 
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   
-  const [appUsers, setAppUsers] = useState(() => { const saved = localStorage.getItem('smpc_users'); return saved ? JSON.parse(saved) : INITIAL_USERS_DATA; });
-  const [vehicles, setVehicles] = useState(() => { const saved = localStorage.getItem('smpc_vehicles'); return saved ? JSON.parse(saved) : INITIAL_VEHICLES_DATA; });
+  // ✅ เพิ่มระบบป้องกัน Error เวลา LocalStorage พัง
+  const [appUsers, setAppUsers] = useState(() => { 
+      const saved = localStorage.getItem('smpc_users'); 
+      try { return saved ? JSON.parse(saved) : INITIAL_USERS_DATA; } catch(e) { localStorage.removeItem('smpc_users'); return INITIAL_USERS_DATA; }
+  });
+  const [vehicles, setVehicles] = useState(() => { 
+      const saved = localStorage.getItem('smpc_vehicles'); 
+      try { return saved ? JSON.parse(saved) : INITIAL_VEHICLES_DATA; } catch(e) { localStorage.removeItem('smpc_vehicles'); return INITIAL_VEHICLES_DATA; }
+  });
   const [logs, setLogs] = useState(() => { 
       const saved = localStorage.getItem('smpc_logs'); 
       if (saved) {
           try { 
               let parsed = JSON.parse(saved);
               return parsed.map(l => { if (l.photoBase64) { const { photoBase64, ...rest } = l; return rest; } return l; });
-          } catch (e) { return []; }
+          } catch (e) { localStorage.removeItem('smpc_logs'); return []; }
       }
       return []; 
   });
@@ -67,6 +74,7 @@ export default function App() {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false); // ✅ สถานะการล็อกอิน
   const [settingsTab, setSettingsTab] = useState('users'); 
 
   const [formType, setFormType] = useState('start');
@@ -85,7 +93,6 @@ export default function App() {
   const [filterVehicleType, setFilterVehicleType] = useState('');
   const [filterVehiclePlate, setFilterVehiclePlate] = useState('');
   
-  // ✅ ระบบเรียงข้อมูล (Sorting State) เริ่มต้นที่เรียงเวลาจากใหม่ไปเก่า
   const [sortConfig, setSortConfig] = useState({ key: 'timestamp', direction: 'desc' });
 
   const [editUserObj, setEditUserObj] = useState(null);
@@ -93,10 +100,31 @@ export default function App() {
   const [editLogObj, setEditLogObj] = useState(null);
   const [globalMessage, setGlobalMessage] = useState(null); 
 
-  // ✅ แก้ไข: จับคู่ userId กับ userName เพื่อให้โชว์ประวัติได้แม่นยำแม้ข้อมูลซิงค์มาจากตาราง
   const userLogs = currentUser ? logs.filter(l => l.userId === currentUser.id || l.userName === currentUser.name).sort((a, b) => b.timestamp - a.timestamp) : [];
   const latestLog = userLogs.length > 0 ? userLogs[0] : null;
   const isCurrentlyOut = latestLog && latestLog.type === 'start';
+
+  // ✅ ระบบดึงข้อมูลรถและพนักงานอัตโนมัติ (Silent Sync) เมื่อเปิดแอป
+  useEffect(() => {
+    const silentSync = async () => {
+       if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
+           try {
+               const response = await fetch(`${GAS_WEB_APP_URL}?t=${new Date().getTime()}`);
+               const text = await response.text();
+               const result = JSON.parse(text);
+               if (result && result.status === 'success') {
+                   if (result.users && result.users.length > 0) {
+                       setAppUsers(result.users.map(u => ({ id: u.id || generateId(), name: u['ชื่อ-สกุล'] || u.name, username: u.Username || u.username, password: u.Password || u.password, role: u['สิทธิ์'] || u.role })));
+                   }
+                   if (result.vehicles && result.vehicles.length > 0) {
+                       setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) })));
+                   }
+               }
+           } catch (e) { console.log('Silent sync failed', e); }
+       }
+    };
+    silentSync();
+  }, []);
 
   useEffect(() => {
     const link = document.createElement('link');
@@ -122,7 +150,7 @@ export default function App() {
       }
     } catch (e) {}
     setIsBootstrapping(false);
-  }, []);
+  }, [appUsers]); // อัปเดตการดึง session ให้ตรวจเช็คใหม่เมื่อ appUsers ถูกดึงมา
 
   const formatDateToThai = (dateObj) => {
     const d = dateObj.getDate(); const m = dateObj.getMonth() + 1; let y = dateObj.getFullYear();
@@ -159,14 +187,52 @@ export default function App() {
   const generateDocNo = () => `DOC-${new Date().getFullYear().toString().slice(2)}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
   const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 
-  const handleLogin = () => {
+  // ✅ ระบบล็อกอินอัจฉริยะ (Smart Login)
+  const handleLogin = async () => {
     setLoginError('');
     if (!loginUsername || !loginPassword) { setLoginError('กรุณากรอก Username และ Password'); return; }
-    const matchedUser = appUsers.find(u => u.username === loginUsername && u.password === loginPassword);
+
+    setIsLoggingIn(true);
+    let matchedUser = appUsers.find(u => u.username === loginUsername && u.password === loginPassword);
+
     if (matchedUser) {
       setCurrentUser(matchedUser); setCurrentScreen(matchedUser.role === 'admin' ? 'admin' : 'dashboard');
       safeSetLocalStorage('smpc_session', JSON.stringify({ username: matchedUser.username, loggedAt: new Date().getTime() }));
-    } else { setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'); }
+      setIsLoggingIn(false);
+    } else {
+      // ถ้าระบบในมือถือไม่เจอชื่อ (เช่น พนักงานใหม่) ให้วิ่งไปเช็ครายชื่อจากส่วนกลางทันที
+      if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") {
+        try {
+          const response = await fetch(`${GAS_WEB_APP_URL}?t=${new Date().getTime()}`);
+          const text = await response.text();
+          const result = JSON.parse(text);
+          if (result && result.status === 'success' && result.users) {
+            const fetchedUsers = result.users.map(u => ({ id: u.id || generateId(), name: u['ชื่อ-สกุล'] || u.name, username: u.Username || u.username, password: u.Password || u.password, role: u['สิทธิ์'] || u.role }));
+            setAppUsers(fetchedUsers);
+            
+            if (result.vehicles) {
+              setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) })));
+            }
+
+            // ลองเช็คอีกรอบด้วยข้อมูลใหม่ที่เพิ่งโหลดมา
+            matchedUser = fetchedUsers.find(u => u.username === loginUsername && u.password === loginPassword);
+            if (matchedUser) {
+              setCurrentUser(matchedUser); setCurrentScreen(matchedUser.role === 'admin' ? 'admin' : 'dashboard');
+              safeSetLocalStorage('smpc_session', JSON.stringify({ username: matchedUser.username, loggedAt: new Date().getTime() }));
+            } else {
+              setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+            }
+          } else {
+            setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+          }
+        } catch (e) {
+          setLoginError('ไม่พบข้อมูล และไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+        }
+      } else {
+        setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      }
+      setIsLoggingIn(false);
+    }
   };
 
   const handleLogout = () => { localStorage.removeItem('smpc_session'); setCurrentUser(null); setCurrentScreen('login'); setLoginUsername(''); setLoginPassword(''); resetForm(); };
@@ -178,7 +244,6 @@ export default function App() {
     setCurrentScreen('form');
   };
 
-  // ✅ ฟังชันส่งตั้งค่ารถและคนขึ้น Google Sheet
   const syncSettingsToCloud = async (usersToSync, vehiclesToSync) => {
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL === "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE") return;
     try {
@@ -186,7 +251,6 @@ export default function App() {
     } catch (e) { console.error("Cloud Sync Error:", e); }
   };
 
-  // ✅ ฟังก์ชันดึงข้อมูลจาก Google Sheet แบบฉบับเต็ม
   const handleSyncData = async () => {
     setIsSyncing(true);
     try {
@@ -223,7 +287,6 @@ export default function App() {
             setLogs(formattedLogs.sort((a, b) => b.timestamp - a.timestamp));
         }
         
-        // ดึงรถและคนลงเครื่อง
         if (result.vehicles && result.vehicles.length > 0) {
             const fetchedVehicles = result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0) }));
             setVehicles(fetchedVehicles);
@@ -283,7 +346,6 @@ export default function App() {
     } catch (error) { setIsUploading(false); setGlobalMessage({text: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่', type: 'info'}); }
   };
 
-  // --- Admin Settings Actions (พร้อมยิงขึ้น Cloud) ---
   const handleAddUser = (e) => {
     e.preventDefault(); const form = e.target; const name = form.emp_name.value; const username = form.emp_username.value; const password = form.emp_password.value; const role = form.emp_role.value;
     if(name && username && password) {
@@ -372,7 +434,9 @@ export default function App() {
                   <input type="password" placeholder="รหัสผ่าน (Password)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full px-5 py-4 rounded-xl border-none outline-none font-bold text-blue-900 focus:ring-4 focus:ring-blue-300 shadow-inner" />
                 </div>
                 {loginError && <div className="flex items-center justify-center gap-1 mt-2 text-red-200 bg-red-900/40 p-3 rounded-lg"><AlertCircle size={16} /><p className="text-sm font-bold">{loginError}</p></div>}
-                <button onClick={handleLogin} className="w-full mt-6 py-4 rounded-xl font-extrabold text-xl text-white bg-blue-900 border-b-4 border-black/30 hover:bg-blue-800 active:translate-y-1 active:border-b-0 shadow-lg transition-all">เข้าสู่ระบบ</button>
+                <button onClick={handleLogin} disabled={isLoggingIn} className={`w-full mt-6 py-4 rounded-xl font-extrabold text-xl text-white border-b-4 shadow-lg transition-all flex items-center justify-center gap-2 ${isLoggingIn ? 'bg-blue-400 border-blue-500 cursor-not-allowed translate-y-1 border-b-0' : 'bg-blue-900 border-black/30 hover:bg-blue-800 active:translate-y-1 active:border-b-0'}`}>
+                  {isLoggingIn ? <><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>กำลังตรวจสอบ...</> : 'เข้าสู่ระบบ'}
+                </button>
               </div>
             </div>
           </div>
@@ -498,21 +562,19 @@ export default function App() {
       const isTodayStr = formatDateToThai(new Date()).split(' ')[0];
       const isToday = targetDateStr === isTodayStr;
       
-      // ✅ แก้ไข: อัปเดตตัวนับคนที่กำลังเดินทาง ให้เช็คจาก userName เผื่อกรณี ID ไม่ตรงกันจากการดึงข้อมูล
       const activeEmployees = appUsers.filter(u => u.role === 'employee').map(emp => { 
         const empLogs = logs.filter(l => l.userId === emp.id || l.userName === emp.name).sort((a,b) => b.timestamp - a.timestamp); 
         return { ...emp, isOut: empLogs[0] && empLogs[0].type === 'start' }; 
       });
       const currentlyOutCount = activeEmployees.filter(e => e.isOut).length;
 
-      // ✅ แก้ไข: ลอจิกใหม่! ถึงพนักงานจะกดแค่ "เข้างาน" หรือ "เลิกงาน" อย่างใดอย่างหนึ่งในวันนั้น ก็จะนำมาแสดงในสรุปด้วย
       const userStats = {};
       let totalDistanceTargetDay = 0;
       
       [...logs].sort((a, b) => a.timestamp - b.timestamp).forEach(log => {
         if (log.dateString.split(' ')[0] !== targetDateStr) return; 
         
-        const uid = log.userName; // Group ด้วยชื่อ จะได้ตัดปัญหาเรื่อง ID
+        const uid = log.userName; 
         if (!userStats[uid]) { 
             userStats[uid] = { userName: log.userName, distance: 0, startMileage: null, endMileage: null, breakdown: {}, tempStart: null }; 
         }
