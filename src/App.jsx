@@ -153,9 +153,13 @@ export default function App() {
   }, []); 
 
   const formatDateToThai = (dateObj) => {
-    const d = dateObj.getDate(); const m = dateObj.getMonth() + 1; let y = dateObj.getFullYear();
-    if (y < 2500) y += 543;
-    const h = String(dateObj.getHours()).padStart(2, '0'); const min = String(dateObj.getMinutes()).padStart(2, '0'); const sec = String(dateObj.getSeconds()).padStart(2, '0');
+    // ✅ อัปเดต: เปลี่ยนระบบให้บันทึกเป็น ค.ศ. (Gregorian) และเติมเลข 0 นำหน้า เพื่อให้สากลที่สุด
+    const d = String(dateObj.getDate()).padStart(2, '0'); 
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0'); 
+    const y = dateObj.getFullYear(); // ไม่ต้องบวก 543 แล้ว
+    const h = String(dateObj.getHours()).padStart(2, '0'); 
+    const min = String(dateObj.getMinutes()).padStart(2, '0'); 
+    const sec = String(dateObj.getSeconds()).padStart(2, '0');
     return `${d}/${m}/${y} ${h}:${min}:${sec}`;
   };
 
