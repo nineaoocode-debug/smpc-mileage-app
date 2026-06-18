@@ -83,7 +83,7 @@ export default function App() {
   const [photoBase64, setPhotoBase64] = useState(''); 
   const [isUploading, setIsUploading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isRollover, setIsRollover] = useState(false); // ✅ ฟีเจอร์ไมล์ตีกลับ
+  const [isRollover, setIsRollover] = useState(false);
   
   const [dashboardDate, setDashboardDate] = useState(new Date());
 
@@ -117,7 +117,6 @@ export default function App() {
                        setAppUsers(result.users.map(u => ({ id: u.id || generateId(), name: u['ชื่อ-สกุล'] || u.name, username: u.Username || u.username, password: u.Password || u.password, role: u['สิทธิ์'] || u.role })));
                    }
                    if (result.vehicles && result.vehicles.length > 0) {
-                       // ✅ ดึงลิมิตหน้าปัดมาด้วย
                        setVehicles(result.vehicles.map(v => ({ id: v.id || generateId(), plate: v['ทะเบียนรถ'] || v.plate, type: v['ประเภท'] || v.type, mileage: Number(v['เลขไมล์ล่าสุด'] || v.mileage || 0), maxMileage: Number(v['ลิมิตหน้าปัด'] || v.maxMileage || 100000) })));
                    }
                }
@@ -342,7 +341,6 @@ export default function App() {
     if (!selectedVehicle) { setGlobalMessage({text: 'กรุณาเลือกยานพาหนะ', type: 'info'}); return; }
     if (!mileage || isNaN(mileage) || Number(mileage) < 0) { setGlobalMessage({text: 'กรุณาระบุเลขไมล์ให้ถูกต้อง', type: 'info'}); return; }
     
-    // ✅ แก้ไข: อนุญาตให้เลขไมล์น้อยกว่าตอนเช้าได้ ถ้าผู้ใช้ติ๊ก "ไมล์ตีกลับเป็น 0"
     if (formType === 'end' && latestLog && !isRollover && Number(mileage) <= (latestLog.mileage || 0)) { 
       setGlobalMessage({text: `เลขไมล์ตอนเลิกงานต้องเพิ่มขึ้น\n(ถ้าหน้าปัดตีกลับเป็น 0 ให้ติ๊กเลือกตัวเลือกด้านล่าง)`, type: 'info'}); 
       return; 
@@ -353,7 +351,6 @@ export default function App() {
     setIsUploading(true);
     try {
       const docNo = generateDocNo(); const now = new Date();
-      // ส่ง isRollover ไปด้วยเพื่อบันทึกหมายเหตุ
       const localPayload = { id: generateId(), docNo, userId: currentUser.id, userName: currentUser.name, type: formType, vehicleId: selectedVehicle, vehiclePlate: vehicles.find(v => v.id === selectedVehicle)?.plate || 'N/A', mileage: Number(mileage), workPeriod: checkWorkPeriod(), timestamp: now.getTime(), dateString: formatDateToThai(now), photoUrl: '', photoBase64: null, isRollover: isRollover };
       
       setLogs([localPayload, ...logs].sort((a, b) => b.timestamp - a.timestamp));
@@ -474,7 +471,6 @@ export default function App() {
 
       const todayStr = formatDateToThai(new Date()).split(' ')[0];
       const todayTrips = trips.filter(t => t.dateString === todayStr);
-      // คำนวณระยะทางวันนี้ใหม่ แบบเผื่อมีไมล์ตีกลับ (ถึงแม้ user ธรรมดาจะไม่ได้โชว์แบบ Admin แต่ถ้าอยากให้เป๊ะ ก็ควรดึง logic มา)
       let todayDistance = 0;
       todayTrips.forEach(t => {
          let dist = 0;
@@ -572,7 +568,6 @@ export default function App() {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">เลขหน้าปัดไมล์ (กม.)</label>
                 <input type="number" value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="เช่น 12500" className="w-full border border-gray-300 rounded-xl p-3 bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none text-lg" />
-                {/* ✅ ฟีเจอร์ไมล์ตีกลับเป็น 0 */}
                 {!isStart && (
                   <div className="flex items-center gap-2 mt-3 p-3 bg-red-50 border border-red-100 rounded-xl transition-all">
                     <input type="checkbox" id="rollover" checked={isRollover} onChange={e => setIsRollover(e.target.checked)} className="w-5 h-5 accent-red-600 rounded cursor-pointer" />
@@ -633,13 +628,11 @@ export default function App() {
         } else if (log.type === 'end') {
             userStats[uid].endMileage = userStats[uid].endMileage !== null ? Math.max(userStats[uid].endMileage, log.mileage) : log.mileage;
             if (userStats[uid].tempStart) {
-                // ✅ แก้ไขสูตรคำนวณ: ถ้ารถไมล์ตีกลับเป็น 0 (เลขตอนเย็น น้อยกว่า ตอนเช้า)
                 let startMil = userStats[uid].tempStart.mileage;
                 let endMil = log.mileage;
                 let dist = 0;
 
                 if (endMil < startMil) {
-                    // ดึงลิมิตหน้าปัดของรถคันนั้นมาลบ ถ้าหาไม่เจอให้เหมาเป็น 1 แสน
                     const v = vehicles.find(v => v.plate === log.vehiclePlate);
                     const maxM = v ? (v.maxMileage || 100000) : 100000;
                     dist = (maxM - startMil) + endMil;
@@ -743,7 +736,6 @@ export default function App() {
         });
       }
 
-      // ✅ ระบบคัดกรอง Sorting 
       const sortedReportLogs = filteredLogs.sort((a, b) => {
          let valA = a[sortConfig.key]; let valB = b[sortConfig.key];
          if (typeof valA === 'string') valA = valA.toLowerCase(); if (typeof valB === 'string') valB = valB.toLowerCase();
@@ -766,9 +758,46 @@ export default function App() {
       const uniquePlates = [...new Set(vehicles.map(v => v.plate))];
       const clearFilters = () => { setFilterStartDate(''); setFilterEndDate(''); setFilterName(''); setFilterVehicleType(''); setFilterVehiclePlate(''); };
 
-      const handleExportCSV = () => { /* Code unchanged */ };
+      // ✅ แก้ไข: เขียนคำสั่ง Export CSV ใช้งานได้จริง พร้อมรองรับภาษาไทยใน Excel!
+      const handleExportCSV = () => {
+        if (sortedReportLogs.length === 0) {
+          setGlobalMessage({ text: 'ไม่มีข้อมูลสำหรับการ Export', type: 'info' });
+          return;
+        }
+
+        // BOM (\uFEFF) เป็นตัวช่วยให้ Microsoft Excel อ่านภาษาไทยออกโดยไม่เป็นภาษาต่างดาว
+        const BOM = '\uFEFF'; 
+        const headers = ['เลขที่เอกสาร', 'วัน-เวลา', 'พนักงาน', 'ประเภท', 'ทะเบียนรถ', 'เลขไมล์', 'ช่วงเวลา', 'ลิงก์รูปภาพ', 'หมายเหตุ'];
+        
+        const csvRows = sortedReportLogs.map(log => {
+          return [
+            `"${log.docNo || ''}"`,
+            `"${log.dateString || ''}"`,
+            `"${log.userName || ''}"`,
+            `"${log.type === 'start' ? 'เข้างาน' : 'เลิกงาน'}"`,
+            `"${log.vehiclePlate || ''}"`,
+            `"${log.mileage || 0}"`,
+            `"${log.workPeriod || ''}"`,
+            `"${log.photoUrl && log.photoUrl !== 'ไม่มีรูปภาพ' && log.photoUrl !== 'simulated_google_photo_url' ? log.photoUrl : ''}"`,
+            `""` // คอลัมน์หมายเหตุ (เผื่อมีไว้)
+          ].join(',');
+        });
+
+        const csvContent = BOM + headers.join(',') + '\n' + csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        // ตั้งชื่อไฟล์ดาวน์โหลดเป็น SMPC_Mileage_Report_วันปัจจุบัน
+        link.setAttribute('download', `SMPC_Mileage_Report_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+
       const handleExportPDF = () => { window.print(); };
-      const handleExportImage = () => { /* Code unchanged */ };
+      const handleExportImage = () => { alert("กรุณาใช้ฟังก์ชัน Export CSV หรือ Save PDF (แล้วเลือก Print to PDF) แทนครับ"); };
 
       return (
         <div className="h-screen overflow-y-auto no-scrollbar bg-gray-50 max-w-5xl mx-auto shadow-xl pb-20 relative">
@@ -792,7 +821,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* แถบปุ่ม Export Tools */}
             <div className="flex flex-wrap gap-2 mb-4 no-print">
               <button onClick={handleExportCSV} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm flex-1 md:flex-none transition-colors"><FileSpreadsheet size={18} /> Export CSV</button>
               <button onClick={handleExportPDF} className="bg-red-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-red-700 shadow-sm flex-1 md:flex-none transition-colors"><Printer size={18} /> Save PDF</button>
@@ -802,7 +830,6 @@ export default function App() {
             <div id="report-table-container" className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto p-1 print-shadow-none">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-gray-700 uppercase bg-gray-100">
-                  {/* ✅ ส่วนหัวที่สามารถคลิกเพื่อ Sort ได้ */}
                   <tr>
                     <th className="px-4 py-3 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('docNo')}>เลขที่เอกสาร <SortIcon columnKey="docNo"/></th>
                     <th className="px-4 py-3 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('timestamp')}>วัน-เวลา <SortIcon columnKey="timestamp"/></th>
@@ -900,7 +927,6 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input name="plate" required placeholder="ป้ายทะเบียนรถ (เช่น กท-1234 กทม)" className="border-2 border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-400 outline-none" />
                     <select name="type" className="border-2 border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-400 outline-none font-bold text-gray-700"><option value="รถยนต์">รถยนต์</option><option value="รถจักรยานยนต์">รถจักรยานยนต์</option><option value="รถบรรทุก">รถบรรทุก</option></select>
-                    {/* ✅ เพิ่มช่องกรอกลิมิตหน้าปัด */}
                     <div className="md:col-span-2">
                       <label className="block text-xs font-semibold text-gray-500 mb-1">ลิมิตหน้าปัดรถ (สำหรับคำนวณไมล์ตีกลับ)</label>
                       <input name="maxMileage" type="number" defaultValue="100000" required placeholder="เช่น 100000 หรือ 1000000" className="w-full border-2 border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-400 outline-none" />
