@@ -3,7 +3,8 @@ import {
   Camera, CheckCircle, AlertCircle, 
   Car, Clock, User, LogOut, FileText, Settings, Play, Square, MapPin,
   TrendingUp, Calendar, Plus, Trash2, KeyRound, Edit, RefreshCw, Download, FileSpreadsheet, Printer,
-  ChevronLeft, ChevronRight, Filter, Search, X, ChevronUp, ChevronDown, ChevronsUpDown
+  ChevronLeft, ChevronRight, Filter, Search, X, ChevronUp, ChevronDown, ChevronsUpDown,
+  UserCheck
 } from 'lucide-react';
 
 // --- Configuration ---
@@ -86,6 +87,8 @@ export default function App() {
   const [isRollover, setIsRollover] = useState(false);
   
   const [dashboardDate, setDashboardDate] = useState(new Date());
+  // ✅ เพิ่มตัวแปรสำหรับควบคุม "มุมมองช่วงเวลา" (รายวัน/รายสัปดาห์/รายเดือน/รายปี)
+  const [dashboardView, setDashboardView] = useState('daily');
 
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
@@ -153,10 +156,9 @@ export default function App() {
   }, []); 
 
   const formatDateToThai = (dateObj) => {
-    // ✅ อัปเดต: เปลี่ยนระบบให้บันทึกเป็น ค.ศ. (Gregorian) และเติมเลข 0 นำหน้า เพื่อให้สากลที่สุด
     const d = String(dateObj.getDate()).padStart(2, '0'); 
     const m = String(dateObj.getMonth() + 1).padStart(2, '0'); 
-    const y = dateObj.getFullYear(); // ไม่ต้องบวก 543 แล้ว
+    const y = dateObj.getFullYear(); 
     const h = String(dateObj.getHours()).padStart(2, '0'); 
     const min = String(dateObj.getMinutes()).padStart(2, '0'); 
     const sec = String(dateObj.getSeconds()).padStart(2, '0');
@@ -604,11 +606,56 @@ export default function App() {
     }
 
     if (currentScreen === 'admin') {
-      const changeDashboardDate = (days) => { const newDate = new Date(dashboardDate); newDate.setDate(newDate.getDate() + days); setDashboardDate(newDate); };
-      const targetDateStr = formatDateToThai(dashboardDate).split(' ')[0];
-      const isTodayStr = formatDateToThai(new Date()).split(' ')[0];
-      const isToday = targetDateStr === isTodayStr;
-      
+      // 🗓️ ระบบคำนวณปฏิทิน (Date Engine)
+      const getStartOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const getEndOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+      const getStartOfWeek = (d) => { const x = new Date(d); const day = x.getDay(); const diff = x.getDate() - day + (day === 0 ? -6 : 1); x.setDate(diff); return getStartOfDay(x); };
+      const getEndOfWeek = (d) => { const x = getStartOfWeek(d); x.setDate(x.getDate() + 6); return getEndOfDay(x); };
+      const getStartOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+      const getEndOfMonth = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+      const getStartOfYear = (d) => new Date(d.getFullYear(), 0, 1);
+      const getEndOfYear = (d) => new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
+
+      let startOfPeriod, endOfPeriod;
+      if (dashboardView === 'daily') { startOfPeriod = getStartOfDay(dashboardDate); endOfPeriod = getEndOfDay(dashboardDate); }
+      else if (dashboardView === 'weekly') { startOfPeriod = getStartOfWeek(dashboardDate); endOfPeriod = getEndOfWeek(dashboardDate); }
+      else if (dashboardView === 'monthly') { startOfPeriod = getStartOfMonth(dashboardDate); endOfPeriod = getEndOfMonth(dashboardDate); }
+      else if (dashboardView === 'yearly') { startOfPeriod = getStartOfYear(dashboardDate); endOfPeriod = getEndOfYear(dashboardDate); }
+
+      const sTime = startOfPeriod.getTime();
+      const eTime = endOfPeriod.getTime();
+
+      const changeDashboardDate = (direction) => {
+        const newDate = new Date(dashboardDate);
+        if (dashboardView === 'daily') newDate.setDate(newDate.getDate() + direction);
+        else if (dashboardView === 'weekly') newDate.setDate(newDate.getDate() + (direction * 7));
+        else if (dashboardView === 'monthly') newDate.setMonth(newDate.getMonth() + direction);
+        else if (dashboardView === 'yearly') newDate.setFullYear(newDate.getFullYear() + direction);
+        setDashboardDate(newDate);
+      };
+
+      const isCurrentPeriod = () => {
+        const now = new Date();
+        if (dashboardView === 'daily') return dashboardDate.toDateString() === now.toDateString();
+        if (dashboardView === 'weekly') return getStartOfWeek(dashboardDate).getTime() === getStartOfWeek(now).getTime();
+        if (dashboardView === 'monthly') return dashboardDate.getMonth() === now.getMonth() && dashboardDate.getFullYear() === now.getFullYear();
+        if (dashboardView === 'yearly') return dashboardDate.getFullYear() === now.getFullYear();
+      };
+      const isLatest = isCurrentPeriod();
+
+      const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+      let displayDateStr = '';
+      if (dashboardView === 'daily') {
+        const d = String(dashboardDate.getDate()).padStart(2, '0'); const m = String(dashboardDate.getMonth() + 1).padStart(2, '0');
+        displayDateStr = `${d}/${m}/${dashboardDate.getFullYear()}`;
+      } else if (dashboardView === 'weekly') {
+        displayDateStr = `${startOfPeriod.getDate()} ${thaiMonths[startOfPeriod.getMonth()]} - ${endOfPeriod.getDate()} ${thaiMonths[endOfPeriod.getMonth()]} ${endOfPeriod.getFullYear()}`;
+      } else if (dashboardView === 'monthly') {
+        displayDateStr = `เดือน ${thaiMonths[dashboardDate.getMonth()]} ${dashboardDate.getFullYear()}`;
+      } else if (dashboardView === 'yearly') {
+        displayDateStr = `ปี ${dashboardDate.getFullYear()}`;
+      }
+
       const activeEmployees = appUsers.filter(u => u.role === 'employee').map(emp => { 
         const empLogs = logs.filter(l => l.userId === emp.id || l.userName === emp.name).sort((a,b) => b.timestamp - a.timestamp); 
         return { ...emp, isOut: empLogs[0] && empLogs[0].type === 'start' }; 
@@ -616,21 +663,27 @@ export default function App() {
       const currentlyOutCount = activeEmployees.filter(e => e.isOut).length;
 
       const userStats = {};
-      let totalDistanceTargetDay = 0;
+      let totalDistanceTargetPeriod = 0;
+      const activeUsersInPeriod = new Set();
       
       [...logs].sort((a, b) => a.timestamp - b.timestamp).forEach(log => {
-        if (log.dateString.split(' ')[0] !== targetDateStr) return; 
-        
         const uid = log.userName; 
-        if (!userStats[uid]) { 
-            userStats[uid] = { userName: log.userName, distance: 0, startMileage: null, endMileage: null, breakdown: {}, tempStart: null }; 
-        }
+        if (!userStats[uid]) { userStats[uid] = { userName: log.userName, distance: 0, startMileage: null, endMileage: null, breakdown: {}, vehicleBreakdown: {}, tempStart: null }; }
         
+        const isInPeriod = log.timestamp >= sTime && log.timestamp <= eTime;
+
         if (log.type === 'start') {
-            userStats[uid].startMileage = userStats[uid].startMileage !== null ? Math.min(userStats[uid].startMileage, log.mileage) : log.mileage;
             userStats[uid].tempStart = log;
+            if (isInPeriod) {
+                userStats[uid].startMileage = userStats[uid].startMileage !== null ? Math.min(userStats[uid].startMileage, log.mileage) : log.mileage;
+                activeUsersInPeriod.add(uid);
+            }
         } else if (log.type === 'end') {
-            userStats[uid].endMileage = userStats[uid].endMileage !== null ? Math.max(userStats[uid].endMileage, log.mileage) : log.mileage;
+            if (isInPeriod) {
+                userStats[uid].endMileage = userStats[uid].endMileage !== null ? Math.max(userStats[uid].endMileage, log.mileage) : log.mileage;
+                activeUsersInPeriod.add(uid);
+            }
+
             if (userStats[uid].tempStart) {
                 let startMil = userStats[uid].tempStart.mileage;
                 let endMil = log.mileage;
@@ -644,76 +697,94 @@ export default function App() {
                     dist = endMil - startMil;
                 }
 
-                if (dist > 0) {
+                if (isInPeriod && dist > 0) {
                     userStats[uid].distance += dist;
-                    totalDistanceTargetDay += dist;
+                    totalDistanceTargetPeriod += dist;
                     const vTypeRaw = vehicles.find(v => v.plate === log.vehiclePlate)?.type || '';
                     let vType = 'รถยนต์'; if (vTypeRaw.includes('จักรยาน') || vTypeRaw.includes('มอเตอร์ไซค์')) vType = 'มอเตอร์ไซค์'; else if (vTypeRaw.includes('บรรทุก')) vType = 'รถบรรทุก';
+                    
                     userStats[uid].breakdown[vType] = (userStats[uid].breakdown[vType] || 0) + dist;
+                    userStats[uid].vehicleBreakdown[log.vehiclePlate] = (userStats[uid].vehicleBreakdown[log.vehiclePlate] || 0) + dist;
                 }
                 userStats[uid].tempStart = null;
             }
         }
       });
-      const userStatsArray = Object.values(userStats).sort((a, b) => b.distance - a.distance);
+      
+      const userStatsArray = Object.values(userStats)
+        .filter(stat => stat.distance > 0 || activeUsersInPeriod.has(stat.userName))
+        .sort((a, b) => b.distance - a.distance);
       
       const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-      let conicGradientStr = totalDistanceTargetDay > 0 ? userStatsArray.map((stat, idx) => { const percent = (stat.distance / totalDistanceTargetDay) * 100; const start = arguments[2] || 0; arguments[2] = start + percent; return `${colors[idx % colors.length]} ${start}% ${arguments[2]}%`; }).join(', ') : '#e5e7eb 0% 100%';
+      let conicGradientStr = totalDistanceTargetPeriod > 0 ? userStatsArray.map((stat, idx) => { const percent = (stat.distance / totalDistanceTargetPeriod) * 100; const start = arguments[2] || 0; arguments[2] = start + percent; return `${colors[idx % colors.length]} ${start}% ${arguments[2]}%`; }).join(', ') : '#e5e7eb 0% 100%';
 
       return (
-        <div className="h-screen overflow-y-auto no-scrollbar bg-gray-50 max-w-4xl mx-auto shadow-xl pb-20">
+        <div className="h-screen overflow-y-auto no-scrollbar bg-gray-50 max-w-5xl mx-auto shadow-xl pb-20">
           <AppHeader title="ส่วนจัดการ" subtitle="(ผู้ตรวจสอบ)" currentUser={currentUser} onLogout={handleLogout} />
           <div className="p-6">
+            
             <div className="grid grid-cols-3 gap-3 mb-6">
               <button onClick={() => setCurrentScreen('reports')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col items-center justify-center gap-2 hover:bg-blue-50 transition-colors"><div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center"><FileText size={24} /></div><span className="font-bold text-xs text-gray-800 text-center">รายงาน</span></button>
               <button onClick={() => setCurrentScreen('settings')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col items-center justify-center gap-2 hover:bg-purple-50 transition-colors"><div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center"><Settings size={24} /></div><span className="font-bold text-xs text-gray-800 text-center">ตั้งค่าระบบ</span></button>
               <button onClick={handleSyncData} disabled={isSyncing} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col items-center justify-center gap-2 hover:bg-green-50 transition-colors"><div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center">{isSyncing ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div> : <RefreshCw size={24} />}</div><span className="font-bold text-xs text-gray-800 text-center">ดึงข้อมูลล่าสุด</span></button>
             </div>
+
+            {/* ✅ เมนูสลับช่วงเวลา (ใหม่!) */}
+            <div className="flex bg-gray-200 p-1.5 rounded-xl mb-6 shadow-inner overflow-x-auto no-scrollbar">
+              <button onClick={() => setDashboardView('daily')} className={`flex-1 min-w-[80px] py-2 text-sm font-bold rounded-lg transition-all ${dashboardView === 'daily' ? 'bg-white text-blue-700 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>รายวัน</button>
+              <button onClick={() => setDashboardView('weekly')} className={`flex-1 min-w-[90px] py-2 text-sm font-bold rounded-lg transition-all ${dashboardView === 'weekly' ? 'bg-white text-blue-700 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>รายสัปดาห์</button>
+              <button onClick={() => setDashboardView('monthly')} className={`flex-1 min-w-[80px] py-2 text-sm font-bold rounded-lg transition-all ${dashboardView === 'monthly' ? 'bg-white text-blue-700 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>รายเดือน</button>
+              <button onClick={() => setDashboardView('yearly')} className={`flex-1 min-w-[80px] py-2 text-sm font-bold rounded-lg transition-all ${dashboardView === 'yearly' ? 'bg-white text-blue-700 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>รายปี</button>
+            </div>
+
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
               <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 flex items-center gap-3"><TrendingUp size={28} className="text-blue-600"/> สถิติการเดินทาง</h2>
               <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl shadow-sm self-start">
                 <button onClick={() => changeDashboardDate(-1)} className="p-2.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-l-xl transition-colors"><ChevronLeft size={22} /></button>
-                <div className="px-4 font-bold text-blue-900 min-w-[120px] text-center text-sm">{isToday ? `วันนี้ (${targetDateStr})` : targetDateStr}</div>
-                <button onClick={() => changeDashboardDate(1)} disabled={isToday} className={`p-2.5 transition-colors rounded-r-xl ${isToday ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'}`}><ChevronRight size={22} /></button>
+                <div className="px-4 font-bold text-blue-900 min-w-[150px] text-center text-sm">{isLatest && dashboardView === 'daily' ? `วันนี้ (${displayDateStr})` : displayDateStr}</div>
+                <button onClick={() => changeDashboardDate(1)} disabled={isLatest} className={`p-2.5 transition-colors rounded-r-xl ${isLatest ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'}`}><ChevronRight size={22} /></button>
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-5 rounded-2xl shadow-md text-white flex flex-col justify-center items-center text-center"><span className="text-sm font-medium text-blue-100 mb-1">ระยะทางรวมที่เลือก</span><div className="flex items-baseline gap-2"><span className="text-6xl font-extrabold text-yellow-400 drop-shadow-md">{totalDistanceTargetDay.toLocaleString()}</span><span className="text-lg font-bold text-yellow-200">กม.</span></div></div>
-              <div className="bg-white border border-gray-200 p-5 rounded-2xl shadow-sm flex flex-col justify-center items-center text-center"><span className="text-sm font-bold text-gray-500 mb-1">พนักงานกำลังเดินทาง</span><div className="flex items-baseline gap-1 text-orange-500"><span className="text-6xl font-extrabold">{currentlyOutCount}</span><span className="text-lg font-bold">คน</span></div></div>
+              <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-5 rounded-2xl shadow-md text-white flex flex-col justify-center items-center text-center"><span className="text-sm font-medium text-blue-100 mb-1">ระยะทางรวมที่เลือก</span><div className="flex items-baseline gap-2"><span className="text-5xl md:text-6xl font-extrabold text-yellow-400 drop-shadow-md">{totalDistanceTargetPeriod.toLocaleString()}</span><span className="text-lg font-bold text-yellow-200">กม.</span></div></div>
+              <div className="bg-white border border-gray-200 p-5 rounded-2xl shadow-sm flex flex-col justify-center items-center text-center"><span className="text-sm font-bold text-gray-500 mb-1">พนักงานที่มีการเดินทาง</span><div className="flex items-baseline gap-1 text-orange-500"><span className="text-5xl md:text-6xl font-extrabold">{userStatsArray.length}</span><span className="text-lg font-bold">คน</span></div></div>
             </div>
-            {totalDistanceTargetDay > 0 && (
+
+            {totalDistanceTargetPeriod > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6 flex flex-col items-center gap-8">
                 <div className="relative w-40 h-40 md:w-48 md:h-48 rounded-full flex-shrink-0 shadow-inner" style={{ background: `conic-gradient(${conicGradientStr})`}}><div className="absolute inset-3 bg-white rounded-full flex flex-col items-center justify-center shadow-sm"><Car size={36} className="text-gray-400" /></div></div>
                 <div className="w-full flex flex-col gap-3">
                    {userStatsArray.map((stat, idx) => (
                      <div key={idx} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${idx % 2 === 0 ? 'bg-gray-50 border-gray-100' : 'bg-gray-100 border-gray-200'}`}>
                         <div className="flex items-center gap-3 truncate"><span className="w-4 h-4 rounded-full flex-shrink-0 shadow-sm" style={{ backgroundColor: colors[idx % colors.length] }}></span><span className="font-extrabold text-xl md:text-2xl text-gray-800 truncate">{stat.userName.split(' ')[1] || stat.userName}</span></div>
-                        <span className="font-extrabold text-xl md:text-2xl text-gray-900">{stat.distance} <span className="text-sm md:text-base text-gray-500 font-medium">กม.</span></span>
+                        <span className="font-extrabold text-xl md:text-2xl text-gray-900">{stat.distance.toLocaleString()} <span className="text-sm md:text-base text-gray-500 font-medium">กม.</span></span>
                      </div>
                    ))}
                 </div>
               </div>
             )}
-            <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-5 mt-8 flex items-center gap-3"><User size={28} className="text-blue-600"/> สรุประยะทางรายบุคคล ({isToday ? 'วันนี้' : targetDateStr})</h2>
+            
+            <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-5 mt-8 flex items-center gap-3"><User size={28} className="text-blue-600"/> สรุประยะทางรายบุคคล ({displayDateStr})</h2>
             <div className="space-y-4">
-              {userStatsArray.length === 0 ? (<div className="bg-gray-50 border border-gray-200 p-8 rounded-2xl text-center text-gray-400 font-medium flex flex-col items-center gap-2"><Calendar size={32} className="text-gray-300" />ไม่มีข้อมูลการเดินทางในวันที่เลือก</div>) : (
+              {userStatsArray.length === 0 ? (<div className="bg-gray-50 border border-gray-200 p-8 rounded-2xl text-center text-gray-400 font-medium flex flex-col items-center gap-2"><Calendar size={32} className="text-gray-300" />ไม่มีข้อมูลการเดินทางในช่วงเวลาที่เลือก</div>) : (
                 userStatsArray.map((stat, idx) => (
                   <div key={idx} className="bg-white p-5 rounded-3xl shadow-md border-2 border-blue-50 flex flex-col gap-4 transition-all hover:shadow-lg">
                     <div className="flex items-center gap-4 border-b border-gray-100 pb-4">
                       <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 shadow-inner flex-shrink-0"><User size={24} /></div>
                       <div className="flex-1"><h3 className="font-extrabold text-gray-800 text-lg leading-tight">{stat.userName}</h3></div>
-                      <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-2 rounded-full text-xl font-extrabold shadow-md whitespace-nowrap border border-orange-400">{stat.distance} <span className="text-sm font-medium">กม.</span></div>
+                      <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-2 rounded-full text-xl font-extrabold shadow-md whitespace-nowrap border border-orange-400">{stat.distance.toLocaleString()} <span className="text-sm font-medium">กม.</span></div>
                     </div>
                     {Object.keys(stat.breakdown).length > 0 && (
-                        <div className="flex flex-col gap-2">{Object.entries(stat.breakdown).map(([type, dist]) => (<div key={type} className="flex justify-between items-center text-sm text-gray-700 bg-gray-50 px-4 py-3 rounded-2xl border border-gray-100"><span className="flex items-center gap-2 font-bold">{type === 'มอเตอร์ไซค์' ? '🏍️' : (type === 'รถบรรทุก' ? '🚚' : '🚗')} {type}</span><span className="font-extrabold text-blue-700 text-xl">{dist} <span className="text-sm text-gray-500 font-medium">กม.</span></span></div>))}</div>
+                        <div className="flex flex-col gap-2">{Object.entries(stat.breakdown).map(([type, dist]) => (<div key={type} className="flex justify-between items-center text-sm text-gray-700 bg-gray-50 px-4 py-3 rounded-2xl border border-gray-100"><span className="flex items-center gap-2 font-bold">{type === 'มอเตอร์ไซค์' ? '🏍️' : (type === 'รถบรรทุก' ? '🚚' : '🚗')} {type}</span><span className="font-extrabold text-blue-700 text-xl">{dist.toLocaleString()} <span className="text-sm text-gray-500 font-medium">กม.</span></span></div>))}</div>
                     )}
                     <div className="grid grid-cols-2 gap-3 mt-2">
                       <div className="flex flex-col items-center justify-center p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                         <span className="text-sm text-blue-600 font-bold mb-1">ไมล์แรกเข้างาน</span>
+                         <span className="text-xs md:text-sm text-blue-600 font-bold mb-1">ไมล์แรกสุด (ช่วงนี้)</span>
                          <span className="text-3xl md:text-4xl font-extrabold text-blue-800 font-mono tracking-tight">{stat.startMileage !== null ? stat.startMileage.toLocaleString() : '-'}</span>
                       </div>
                       <div className="flex flex-col items-center justify-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                         <span className="text-sm text-orange-600 font-bold mb-1">ไมล์เลิกงานล่าสุด</span>
+                         <span className="text-xs md:text-sm text-orange-600 font-bold mb-1">ไมล์ล่าสุด (ช่วงนี้)</span>
                          <span className="text-3xl md:text-4xl font-extrabold text-orange-800 font-mono tracking-tight">{stat.endMileage !== null ? stat.endMileage.toLocaleString() : '-'}</span>
                       </div>
                     </div>
@@ -721,6 +792,59 @@ export default function App() {
                 ))
               )}
             </div>
+
+            {/* ✅ สรุปการใช้รถรายคันแยกตามบุคคล (Grid Cards) */}
+            <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-5 mt-10 flex items-center gap-3">
+              <UserCheck size={28} className="text-blue-600"/> สรุปการใช้รถรายคัน ({displayDateStr})
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {userStatsArray.length === 0 ? (
+                <div className="col-span-full bg-gray-50 border border-gray-200 p-8 rounded-2xl text-center text-gray-400 font-medium flex flex-col items-center gap-2">
+                   ไม่มีข้อมูลการใช้รถในช่วงเวลาที่เลือก
+                </div>
+              ) : (
+                userStatsArray.map((stat, idx) => (
+                  <div key={`grid-${idx}`} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+                    
+                    {/* Header: ชื่อคนขับ */}
+                    <div className="bg-blue-50 p-4 border-b border-blue-100 flex items-center gap-3">
+                       <div className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shadow-inner flex-shrink-0">
+                          {stat.userName.split(' ')[1] ? stat.userName.split(' ')[1].charAt(0) : stat.userName.charAt(0)}
+                       </div>
+                       <h3 className="font-bold text-blue-900 leading-tight flex-1 text-sm line-clamp-2">{stat.userName}</h3>
+                    </div>
+
+                    {/* Body: รายการรถที่ใช้ */}
+                    <div className="p-4 flex-1 flex flex-col gap-3">
+                       {Object.keys(stat.vehicleBreakdown).length > 0 ? (
+                         Object.entries(stat.vehicleBreakdown).map(([plate, dist]) => (
+                           <div key={plate} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
+                             <div className="flex flex-col">
+                               <span className="text-xs text-gray-500 font-medium mb-1">ทะเบียนรถ</span>
+                               <span className="font-bold text-gray-800 text-sm">{plate}</span>
+                             </div>
+                             <div className="text-right flex items-baseline gap-1">
+                               <span className="text-lg font-extrabold text-blue-700">{dist.toLocaleString()}</span>
+                               <span className="text-xs text-gray-500">กม.</span>
+                             </div>
+                           </div>
+                         ))
+                       ) : (
+                         <div className="text-center text-xs text-gray-400 py-4 font-medium">ไม่มีประวัติวิ่งจบสมบูรณ์</div>
+                       )}
+                    </div>
+
+                    {/* Footer: ระยะทางรวมของคนนี้ */}
+                    <div className="bg-gray-50 p-4 border-t border-gray-200 flex justify-between items-center">
+                       <span className="font-bold text-gray-600 text-xs">รวมระยะทางทั้งหมด</span>
+                       <span className="font-extrabold text-xl text-orange-600">{stat.distance.toLocaleString()} <span className="text-xs font-medium text-gray-500">กม.</span></span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
           </div>
         </div>
       );
